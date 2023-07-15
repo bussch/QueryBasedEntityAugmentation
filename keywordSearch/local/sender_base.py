@@ -1,12 +1,12 @@
 import random
 import copy
-import math
 
 from data_manage.datastore import Datastore
 from local.keyword_value_estimator import featurization_utils
 import pickle as pickle
 import os
 from additionalScripts.output_config import OutputConfig
+
 
 class SenderBase(object):
     """Base class for all sender models.
@@ -18,6 +18,7 @@ class SenderBase(object):
                 be used by specific models.
             receiver (Receiver): the external receiver. Used to initialize external features.
     """
+
     def __init__(self, config, receiver, dataset=None):
         super(SenderBase, self).__init__()
         self.config = config
@@ -36,7 +37,7 @@ class SenderBase(object):
         if (self.config['distribution'] == 'zipfian'):
             self._zipf_prob = None
             self._zipf_events = None
-        
+
         # Bias data
         self._external_data = None
         self._external_signalIndex = None
@@ -67,8 +68,8 @@ class SenderBase(object):
         memo[id(self)] = result
 
         shallow_copyable = ['config', 'lin_attribute_headers', 'idf', 'signalIndex', '_idf_buckets', '_len_buckets',
-                          '_normTF_buckets', '_zipf_prob', '_zipf_events', '_has_matched',
-                          '_max_external_tf', '_external_tf', '_tf_buckets_external']
+                            '_normTF_buckets', '_zipf_prob', '_zipf_events', '_has_matched',
+                            '_max_external_tf', '_external_tf', '_tf_buckets_external']
 
         for k, v in self.__dict__.items():
             if k in shallow_copyable:
@@ -77,6 +78,20 @@ class SenderBase(object):
                 setattr(result, k, copy.deepcopy(v, memo))
 
         return result
+
+    # def __getstate__(self):
+    #     """Remove large data structures prior to pickling. NOTE: Windows systems will SPAWN processes when Process is
+    #         is called. This has the effect of also calling __getstate__, which means deleting these structures on
+    #         spawning. Consider simply commenting this override (function) out if running on a Windows system and
+    #         pickling the sender object.
+    #     """
+    #     state = self.__dict__.copy()
+    #     del state['signalIndex']
+    #     del state['idf']
+    #     return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
     def _save_obj(self, obj, name):
         """Convenience method for saving objects."""
@@ -98,7 +113,7 @@ class SenderBase(object):
                 _x_buckets: equidepth (as possible) buckets for x feature for one-hot encoding
         """
 
-        RECORD_DIR_PATH = OutputConfig(self.config['config_path']).paths['processed_data']        
+        RECORD_DIR_PATH = OutputConfig(self.config['config_path']).paths['processed_data']
 
         print(RECORD_DIR_PATH + self.config['dataset_name'] + "_sender/")
         if not os.path.exists(RECORD_DIR_PATH + self.config['dataset_name'] + "_sender/"):
@@ -120,9 +135,11 @@ class SenderBase(object):
         if not os.path.exists(RECORD_DIR_PATH + self.config['dataset_name'] + "_sender/buckets/"):
             # Create buckets
             self._idf_buckets = featurization_utils.findBucket(self.config, 7, list(self.idf.values()))
-            self._len_buckets = featurization_utils.findBucket(self.config, 6, [len(signal.keyword) for signal_list in self.signalIndex.values() for signal in signal_list])
+            self._len_buckets = featurization_utils.findBucket(self.config, 6, [len(signal.keyword) for signal_list in
+                                                                                self.signalIndex.values() for signal in
+                                                                                signal_list])
             maximumTF_local = {key: max([signal.getTermFrequency() for signal in self.signalIndex[key]])
-                                  for key in self.signalIndex}
+                               for key in self.signalIndex}
             normalizedTFCount = [signal.getTermFrequency() / maximumTF_local[key]
                                  for key in maximumTF_local for signal in self.signalIndex[key]]
             self._normTF_buckets = featurization_utils.findBucket(self.config, 6, normalizedTFCount)
@@ -144,7 +161,7 @@ class SenderBase(object):
                 RECORD_DIR_PATH + self.config['dataset_name'] + "_sender/buckets/normTT_buckets")
 
     def generateZipfianDistribution(self, seed):
-        """Generate a zipfian distribution for tuple sampling. Rankings are shuffled so every 
+        """Generate a zipfian distribution for tuple sampling. Rankings are shuffled so every
         call results in different probabilities for each tuple.
         """
         print('Generating random zipfian distribution with s=1')
@@ -152,8 +169,8 @@ class SenderBase(object):
         random.seed(seed)
         random.shuffle(self._zipf_events)
         random.seed()
-        self._zipf_prob = [1/i for i in range(1, len(self.signalIndex)+1)]
-        self._zipf_prob = [x/sum(self._zipf_prob) for x in self._zipf_prob]
+        self._zipf_prob = [1 / i for i in range(1, len(self.signalIndex) + 1)]
+        self._zipf_prob = [x / sum(self._zipf_prob) for x in self._zipf_prob]
 
     def pickTupleToJoin(self):
         """Randomly select a tuple_id from signalIndex.
@@ -171,6 +188,8 @@ class SenderBase(object):
                 i += 1
                 cumulative += self._zipf_prob[i]
             return self._zipf_events[i]
+        elif (self.config['distribution'] == 'fixed') or (self.config['distribution'] == 'uniform_fixed'):
+            return self.tuple_series.pop(0)
         else:
             print('{} is not a valid intent selection distribution'.format(self.config['distribution']))
             exit()
@@ -190,7 +209,7 @@ class SenderBase(object):
         if self.config['external_feat_specific'] or self.config['external_feat_specific_unsupervised']:
             external_feat_specific = True
         return featurization_utils.get_characteristics(self, signal, source_tupleID, external_feat_specific)
-    
+
     def featurize_external_term(self, signal, source_tupleID, external_feat_specific=False):
         """Returns a featurized representation of a signal.
 
@@ -205,7 +224,7 @@ class SenderBase(object):
         """
         if self.config['external_feat_specific'] or self.config['external_feat_specific_unsupervised']:
             external_feat_specific = True
-        
+
         return featurization_utils.get_characteristics_external(self, signal, source_tupleID, external_feat_specific)
 
     def _process_ext_features(self, receiver):
@@ -218,7 +237,7 @@ class SenderBase(object):
             Data Structures:
                 _x_buckets_external : equidepth (as possible) buckets for x external feature for one-hot encoding
         """
-        
+
         RECORD_DIR_PATH = OutputConfig(self.config['config_path']).paths['processed_data']
 
         self._external_signalIndex = receiver.signalIndex
@@ -227,7 +246,7 @@ class SenderBase(object):
         if not os.path.exists(RECORD_DIR_PATH + self.config['dataset_name'] + "_sender/ext_buckets/"):
             # Create data structures
             maximumTF_external = {key: max([signal.getTermFrequency() for signal in receiver.signalIndex[key]])
-                                       for key in receiver.signalIndex}
+                                  for key in receiver.signalIndex}
             normalizedTFCount = [signal.getTermFrequency() / maximumTF_external[key]
                                  for key in maximumTF_external for signal in receiver.signalIndex[key]]
             self._tf_buckets_external = featurization_utils.findBucket(6, normalizedTFCount)
@@ -275,13 +294,15 @@ class SenderBase(object):
                 total_sent += 1.0
                 if self.sent_words[local_tuple_id][w] == True:
                     num_sent += 1.0
-            if (num_sent/total_sent) >= 0.7:
+            if (num_sent / total_sent) >= 0.7:
                 exhausted_all_terms = True
 
         for external_tuple_id in external_tuple_ids:
             if self.config['unsupervised_term_borrowing']:
                 if exhausted_all_terms:
-                    if (local_tuple_id not in self.unsupervised_matched) or (local_tuple_id in self.unsupervised_matched and external_tuple_id not in self.unsupervised_matched[local_tuple_id]):
+                    if (local_tuple_id not in self.unsupervised_matched) or (
+                            local_tuple_id in self.unsupervised_matched and external_tuple_id not in
+                            self.unsupervised_matched[local_tuple_id]):
                         self.tried_unsupervised[local_tuple_id] = False
                         local_term_list = [signal.keyword for signal in self.signalIndex[local_tuple_id]]
                         for external_signal in external_signal_index[external_tuple_id]:
@@ -303,8 +324,9 @@ class SenderBase(object):
                             for external_signal in external_signal_index[external_tuple_id]:
                                 if external_signal.keyword not in self._external_tf_unsupervised[local_tuple_id]:
                                     self._external_tf_unsupervised[local_tuple_id][external_signal.keyword] = dict()
-                                self._external_tf_unsupervised[local_tuple_id][external_signal.keyword][external_tuple_id] = external_signal.getTermFrequency()
-            
+                                self._external_tf_unsupervised[local_tuple_id][external_signal.keyword][
+                                    external_tuple_id] = external_signal.getTermFrequency()
+
             # skip work if we have already seen these matches
             if local_tuple_id in self._has_matched and \
                     external_tuple_id in self._has_matched[local_tuple_id]:
@@ -321,7 +343,8 @@ class SenderBase(object):
                     for external_signal in external_signal_index[external_tuple_id]:
                         if external_signal.keyword not in self._external_tf[local_tuple_id]:
                             self._external_tf[local_tuple_id][external_signal.keyword] = dict()
-                        self._external_tf[local_tuple_id][external_signal.keyword][external_tuple_id] = external_signal.getTermFrequency()
+                        self._external_tf[local_tuple_id][external_signal.keyword][
+                            external_tuple_id] = external_signal.getTermFrequency()
 
             # Term borrowing
             if self.config['supervised_term_borrowing']:
@@ -338,7 +361,6 @@ class SenderBase(object):
                         external_signal.borrowedOriginList.append(local_tuple_id)
                     if external_signal.keyword not in local_term_list:
                         self.signalIndex[local_tuple_id].append(external_signal)
-
 
             # Register match
             if (not self.config['unsupervised_term_borrowing']):

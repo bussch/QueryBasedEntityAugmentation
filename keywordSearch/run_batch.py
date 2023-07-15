@@ -13,8 +13,9 @@ from additionalScripts.output_config import OutputConfig
 
 longopts = ['dataset=', 'iterations=', 'keys=', 'model=', 'distribution=', 'average_runs=',
             'buffer_size=', 'buffer_sample_size=', 'finetune=', 'split_sample=', 'alpha=',
-            'epsilon=', 'evaluation_interval=', 'evaluation_sample=',
-            'term_borrowing=', 'ts_features=', 'seeds=']
+            'epsilon=', 'evaluation_interval=', 'evaluation_sample=', 'p_thresh=',
+            'term_borrowing=', 'unsupervised_term_borrowing=',
+            'ts_features=', 'external_feat_specific_unsupervised=', 'seeds=']
 optlist, _ = getopt.getopt(sys.argv[1:], '', longopts)
 
 if len(optlist) != len(longopts):
@@ -26,11 +27,11 @@ if len(optlist) != len(longopts):
       assert opt in opts_provided, f'{opt} must be specified'
 
     print('...**DEFAULTS**...')
-    for opt, default in [('--average_runs', '1'), ('--evaluation_interval', 0),
+    for opt, default in [('--average_runs', '1'), ('--evaluation_interval', 0), ('--p_thresh', None),
     ('--evaluation_sample', 0), ('--distribution', 'uniform'), ('--alpha', 0.2), ('--epsilon', 0.05),
     ('--buffer_size', 50), ('--buffer_sample_size', 8), ('--finetune', 'false'), ('--split_sample', 'false'),
-    ('--model', 'dataset_level'), ('--term_borrowing', 'false'),
-    ('--ts_features', 'false'), ('--seeds', None)]:
+    ('--model', 'dataset_level'), ('--term_borrowing', 'false'), ('--unsupervised_term_borrowing', 'false'),
+    ('--ts_features', 'false'), ('--external_feat_specific_unsupervised', 'false'), ('--seeds', None)]:
       if opt not in opts_provided:
         print(f'{opt}={default}')
         optlist.append((opt, default))
@@ -61,6 +62,8 @@ for opt, arg in optlist:
         experiment_config['evaluation_sample'] = int(arg)
         if experiment_config['evaluation_sample'] == 0:
           experiment_config['evaluation_sample'] = None
+    elif opt == '--p_thresh':
+        sender_config['p_thresh'] = float(arg)
     elif opt == '--model':
         model_opt = arg
     elif opt == '--distribution':
@@ -79,8 +82,12 @@ for opt, arg in optlist:
         sender_config['split_sample'] = True if arg.lower() == 'true' else False
     elif opt == '--term_borrowing':
         sender_config['supervised_term_borrowing'] = True if arg.lower() == 'true' else False
+    elif opt == '--unsupervised_term_borrowing':
+        sender_config['unsupervised_term_borrowing'] = True if arg.lower() == 'true' else False
     elif opt == '--ts_features':
         sender_config['external_feat_specific'] = True if arg.lower() == 'true' else False
+    elif opt == '--external_feat_specific_unsupervised':
+       sender_config['external_feat_specific_unsupervised'] = True if arg.lower() == 'true' else False
     elif opt == '--seeds':
         if arg is not None:
             for seed in arg.split(','):
@@ -93,13 +100,13 @@ print()
 dataset_path = 'datasets/'
 experiment_config['top_k_size'] = 20
 experiment_config['dataset_name'] = dataset_name
-if model_opt != 'idf':
-    experiment_config['evaluation_interval'] = experiment_config['interactions'] # Only evaluate at end
-    local_intent_count = {'cord_1': 250500, 'drug_reviews': 13725, 'google': 671, 'imdb': 115004, 'summaries': 30000, 'wdc_1': 57109}[dataset_name]
-    experiment_config['evaluation_sample'] = int((local_intent_count * 0.01) + 0.5) # Set evaluation set size to 1% of data set
-    print(f'Evaluate: {experiment_config["evaluation_sample"]} at {experiment_config["interactions"]}')
-else:
-    print('Running IDF - no eval step')
+# if model_opt != 'idf':
+#     experiment_config['evaluation_interval'] = experiment_config['interactions'] # Only evaluate at end
+#     local_intent_count = {'cord_1': 250500, 'drug_reviews': 13725, 'google': 671, 'imdb': 115004, 'summaries': 30000, 'wdc_1': 57109}[dataset_name]
+#     experiment_config['evaluation_sample'] = int((local_intent_count * 0.01) + 0.5) # Set evaluation set size to 1% of data set
+#     print(f'Evaluate: {experiment_config["evaluation_sample"]} at {experiment_config["interactions"]}')
+# else:
+#     print('Running IDF - no eval step')
 
 # Change config name for different servers
 # if model_opt == 'longformer':
@@ -138,7 +145,7 @@ elif model_opt == 'longformer':
 else:
     experiment_config['save_path'] = OutputConfig(config_path).paths['experiment_results'] + \
                                      get_dir_string(experiment_config, ['dataset_name', 'query_length', 'interactions', 'distribution', 'evaluation_interval', 'evaluation_sample']) + '/' + \
-                                     model_name + '-' + get_dir_string(sender_config, ['alpha', 'distribution', 'external_feat_idf', 'external_feat_specific', 'supervised_term_borrowing'])
+                                     model_name + '-' + get_dir_string(sender_config, ['alpha', 'distribution', 'external_feat_idf', 'external_feat_specific', 'supervised_term_borrowing', 'p_thresh'])
 
     if model_opt == 'hybrid':
         experiment_config['save_path'] += '-' + get_dir_string(sender_config, ['window_size', 'rr_threshold'])
@@ -179,6 +186,11 @@ else:
 
     # Oracle
 oracle = Oracle(dataset_path + dataset_name + '/ground_truth.csv')
+
+if dataset_name == 'chebi' or dataset_name == 'drugcentral':
+    findable_entities = set(oracle.getAllSourceMatches())
+    for unfindable_entity in set(sender.signalIndex.keys()).difference(findable_entities):
+        del sender.signalIndex[unfindable_entity]
 
 if model_opt == 'longformer':
     assert len(experiment_config['average_runs']) == 1

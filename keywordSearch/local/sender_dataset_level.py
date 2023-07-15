@@ -2,12 +2,14 @@ import numpy as np
 from local.keyword_value_estimator import lin_ucb
 from local.sender_base import SenderBase
 
+
 class SenderDatasetLevel(SenderBase):
     """Wrapper for the linUCB model.
 
         Args:
             config['alpha'] (float) : determines the amount of exploration. Larger alpha = more emphasis on upper bound.
     """
+
     def __init__(self, config, receiver):
         super(SenderDatasetLevel, self).__init__(config, receiver)
 
@@ -52,11 +54,28 @@ class SenderDatasetLevel(SenderBase):
         scores = np.append(np.array(scores_local), np.array(scores_external))
         term_list = np.append(np.array(term_list_local), np.array(term_list_external))
 
-        selected_signals = sorted(zip(term_list, scores), key=(lambda x: x[1]), reverse=True)[:query_length]
+        # Select top-n keywords
+        if self.config['p_thresh'] is None:
+            selected_signals = sorted(list(zip(term_list, scores)), key=(lambda x: x[1]), reverse=True)[:query_length]
+
+        # Select keywords until a given probability mass is hit
+        else:
+            # Take softmax of ranked_signals
+            scores = np.exp(scores) / sum(np.exp(scores))
+            ranked_signals = sorted(list(zip(term_list, scores)), key=(lambda x: x[1]), reverse=True)
+
+            mass = 0
+            selected_signals = []
+            for rank in range(len(ranked_signals)):
+                mass += ranked_signals[rank][1]
+                selected_signals.append(ranked_signals[rank])
+                if mass > self.config['p_thresh'] or len(selected_signals) == query_length:
+                    break
+
         for s in selected_signals:
             self.sent_words[tuple_id][s[0].keyword] = True
 
-        return sorted(zip(term_list, scores), key=(lambda x: x[1]), reverse=True)[:query_length]
+        return selected_signals
 
     def update_model(self, tuple_id, sample_x_signals, sample_y):
         """

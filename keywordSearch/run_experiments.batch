@@ -9,7 +9,7 @@ do
 		for dist in 'uniform'
 		do
 			echo "dataset: $dataset, key_len: $key_len, dist: $dist"
-			python3 run_batch.py --dataset=$dataset --iterations=$interactions --keys=$key_len --average_runs=$avg_run_list --model=dataset_level --distribution=$dist --alpha=.2 --term_borrowing=false --ts_features=false --seeds=$seed_list
+	    python3 run_batch.py --dataset=$dataset --iterations=$interactions --keys=$key_len --average_runs=$avg_run_list --model=dataset_level --distribution=$dist --alpha=.2 --term_borrowing=false --ts_features=false --seeds=$seed_list --p_thresh=$p_thresh
 	  do
 	done
 done

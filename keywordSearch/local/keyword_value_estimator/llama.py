@@ -1,15 +1,16 @@
-from transformers import LongformerTokenizer, LongformerModel
+from transformers import LlamaTokenizer, LlamaModel
 from torch import nn
 import torch
 import string
 import random
 
-class LinkBertModel(nn.Module):
+class LinkLlamaModel(nn.Module):
     def __init__(self, char_size):
-        super(LinkBertModel, self).__init__()
+        super(LinkLlamaModel, self).__init__()
 
-        self.tokenizer = LongformerTokenizer.from_pretrained("allenai/longformer-base-4096")
-        self.model = LongformerModel.from_pretrained("allenai/longformer-base-4096")
+        # Initialize tokenizer and pretrained LLaMA model
+        self.tokenizer = LlamaTokenizer.from_pretrained("decapoda-research/llama-7b-hf")
+        self.model = LlamaModel.from_pretrained("decapoda-research/llama-7b-hf")
 
         # Freeze the LLM (no finetuning)
         for param in self.model.parameters():
@@ -24,6 +25,7 @@ class LinkBertModel(nn.Module):
             nn.Linear(512, 1),
             nn.Sigmoid())
 
+    # Process tokens and find pooling indexes only once per tuple
     def _prepare_sample(self, text, signals_characteristics):
         """Process tokens and find pooling indexes
 
@@ -100,8 +102,8 @@ class LinkBertModel(nn.Module):
 
         return term_score
 
-class LinkBert(object):
-    """The full model, containing both Longformer and the prediction head."""
+class LinkLlama(object):
+    """The full model, containing both LLaMA and the prediction head."""
     def __init__(self, char_size, buffer_size, update_sample_size):
 
         self.curr_input_ids = None
@@ -115,37 +117,38 @@ class LinkBert(object):
 
         self.batch_sample_size = update_sample_size
 
-        self.linkyBert = LinkBertModel(char_size).to('cuda')
+        self.linkyLlama = LinkLlamaModel(char_size).to('cuda')
         self.loss_fn = nn.MSELoss()
 
-        self.optimizer = torch.optim.Adam(self.linkyBert.parameters(), lr=0.001)
+        self.optimizer = torch.optim.Adam(self.linkyLlama.parameters(), lr=0.001)
 
     def _get_signal_characteristic_pairs(self, signals_of_interest, sender, tupID):
         signal_list = [splitSignal for signal in signals_of_interest for splitSignal in signal.splitByAttribute()]
         return (signal_list, [sender.featurize_term(signal, tupID) for signal in signal_list])
 
+    # Returns a score
     def predict_raw_terms(self, sender, tupID, data):
         """Uses the full model for inference.
 
-           Args:
-                sender (SenderLongformer) : a reference to the Sender--a more compact way to pass terms through.
-                    Used for determining candidate terms.
-                tupID (string) : the ID of the tuple we want to predict terms for.
-                data (Datastore) : the underlying data. Used to for tokenization and encoding.
+               Args:
+                    sender (SenderLlama) : a reference to the Sender--a more compact way to pass terms through.
+                        Used for determining candidate terms.
+                    tupID (string) : the ID of the tuple we want to predict terms for.
+                    data (Datastore) : the underlying data. Used to for tokenization and encoding.
 
-            Returns:
-                list of Signal objects along with their scores.
+                Returns:
+                    list of Signal objects along with their scores.
         """
         translator = str.maketrans('', '', string.punctuation.replace('-', ''))
         text = ' '.join(data.table[tupID][1:]).translate(translator)
 
         self.curr_input_ids, self.curr_signal_char_pool = \
-            self.linkyBert._prepare_sample(text,
-                                           self._get_signal_characteristic_pairs(sender.signalIndex[tupID], sender, tupID))
+            self.linkyLlama._prepare_sample(text,
+                                            self._get_signal_characteristic_pairs(sender.signalIndex[tupID], sender, tupID))
 
-        self.linkyBert.eval()
+        self.linkyLlama.eval()
         with torch.no_grad():
-            results = self.linkyBert(self.curr_input_ids.unsqueeze(0),
+            results = self.linkyLlama(self.curr_input_ids.unsqueeze(0),
                                      self.curr_signal_char_pool[1].unsqueeze(0),
                                      [self.curr_signal_char_pool[2]])
 
@@ -165,7 +168,7 @@ class LinkBert(object):
                                     else self.batch_sample_size)
                                    )
 
-        self.linkyBert.train()
+        self.linkyLlama.train()
         self.optimizer.zero_grad()
 
         if split_sample:
@@ -176,7 +179,7 @@ class LinkBert(object):
         for samp in samples:
             if len(samp) == 0:
                 continue
-            pred = self.linkyBert(
+            pred = self.linkyLlama(
                 torch.nn.utils.rnn.pad_sequence([self.sample_buffer_tokid[idx] for idx in samp], batch_first=True,
                                                 padding_value=1),
                 torch.nn.utils.rnn.pad_sequence([self.sample_buffer_char[idx] for idx in samp], batch_first=True),
@@ -189,7 +192,7 @@ class LinkBert(object):
             loss.backward()  # call backwards on each one in order to acumulate then gradients, then do a step to make the final backprop step.
             # This will have the same affect as if they were all one batch, but without the hassle (may also be slower)
 
-        torch.nn.utils.clip_grad_norm_(self.linkyBert.parameters(), 1.0)
+        torch.nn.utils.clip_grad_norm_(self.linkyLlama.parameters(), 1.0)
         self.optimizer.step()
         self.optimizer.zero_grad()
 

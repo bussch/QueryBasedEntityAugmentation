@@ -1,17 +1,19 @@
 import numpy as np
 
+
 class LinUCBModel(object):
     """Implementation fo the the linUCB model described in (http://proceedings.mlr.press/v15/chu11a/chu11a.pdf).
 
             Args:
                 alpha (float) : determines the amount of exploration. Larger alpha = more emphasis on upper bound.
     """
+
     def __init__(self, alpha, sender=None):
         self.A_matrix = None
         self.A_inverse = None
         self.b = None
         self.theta = None
-        
+
         self.alpha = alpha
 
         self.init_bool = False
@@ -21,9 +23,9 @@ class LinUCBModel(object):
             Initialize bookkeeping matricies according to amount of features.
         """
         self.A_matrix = np.identity(number_of_features)
-        
+
         self.init_bool = True
-            
+
         self.A_inverse = np.identity(number_of_features)
         self.b = np.zeros(number_of_features)
 
@@ -59,7 +61,7 @@ class LinUCBModel(object):
         if type(self.A_matrix) is not np.ndarray:
             self._initialize_linucb(len(sample_x_feat[0]))
 
-        error = (((sample_x_feat @ self.theta) - sample_y)**2).mean()
+        error = (((sample_x_feat @ self.theta) - sample_y) ** 2).mean()
         delta_f = (sample_y.reshape(-1, 1) * sample_x_feat).sum(axis=0)
         delta_b = np.sum([np.outer(x.T, x) for x in sample_x_feat], axis=0)
         self.A_matrix += delta_b

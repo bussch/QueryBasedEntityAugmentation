@@ -1,21 +1,21 @@
 import random
 
 from data_manage.datastore import Datastore
-from local.keyword_value_estimator import longformer
+from local.keyword_value_estimator import llama
 from local.sender_base import SenderBase
 
-class SenderLongformer(SenderBase):
+class SenderLlama(SenderBase):
     def __init__(self, config, receiver):
         self.dataset = Datastore(config['data_file_path'])
-        super(SenderLongformer, self).__init__(config, receiver, dataset=self.dataset)
+        super(SenderLlama, self).__init__(config, receiver, dataset=self.dataset)
 
         dummy_id = [x for x in self.signalIndex.keys()][0]
         dummy_signal = self.signalIndex[dummy_id][0]
         char_size = len(self.featurize_term(dummy_signal, dummy_id))
-        self.model = longformer.LinkBert(char_size, self.config['buffer_size'], self.config['buffer_sample_size'])
+        self.model = llama.LinkLlama(char_size, self.config['buffer_size'], self.config['buffer_sample_size'])
 
     def __str__(self):
-        return 'longformer'
+        return 'llama'
 
     def generate_query(self, tuple_id, query_length):
         """Get top query_length keywords ranked by the model and select via e-greedy"""

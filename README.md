@@ -1,4 +1,4 @@
-# DataIntegration
+# Effective Entity Augmentation By Querying External Data Sources
 Datasets can be found here: https://drive.google.com/drive/folders/1JEUpO5CeOYwtuFuNYvA9suWPiL1nmMb8?usp=sharing
 
 Our technical report can be found here: https://web.engr.oregonstate.edu/~termehca/papers/entityarg.pdf

@@ -27,23 +27,22 @@ def calculateOptimalQueries(dataset, sender, receiver, oracle, start_range, end_
         best_queries[tupID] = [[] for i in range((max_length - min_length) + 1)]
         best_rr = [0] * ((max_length - min_length) + 1)
 
-        if tupID not in oracle.data1:
-            continue
-
-        matchingIDs = [id for id in oracle.data1[tupID] if id in receiver.signalIndex]
-
-        # Get keywords from matches on external
-        if len(matchingIDs) >= 0:
-            reciever_match_keywords = set(
-                [k.keyword for matchID in matchingIDs for k in receiver.signalIndex[matchID]])
+        if tupID in oracle.data1:
+            matchingIDs = [id for id in oracle.data1[tupID] if id in receiver.signalIndex]
+        elif tupID in oracle.data2:
+            matchingIDs = [id for id in oracle.data2[tupID] if id in receiver.signalIndex]
         else:
             print(f'No match for {tupID}--continue')
+            continue
+
+        # Get keywords from matches on external
+        reciever_match_keywords = set(
+            [k.keyword for matchID in matchingIDs for k in receiver.signalIndex[matchID]])
 
         # Get keywords shared by local and external tuples
         overlapping_keywords = []
         nonoverlapping_keywords = []
-        for signal in [splitSignal for signal in sender.signalIndex[tupID] for splitSignal in
-                       signal.splitByAttribute()]:
+        for signal in sender.signalIndex[tupID]:
             processed_keyword = signal.keyword
             if processed_keyword.lower() in reciever_match_keywords:
                 overlapping_keywords.append(signal)
@@ -57,8 +56,10 @@ def calculateOptimalQueries(dataset, sender, receiver, oracle, start_range, end_
 
             index = query_size - min_length
 
+            full_overlap_queries = [query for query in itertools.combinations(overlapping_keywords, r=query_size)]
+
             # Compute all queries using only shared keywords
-            for keywords_to_send in itertools.combinations(overlapping_keywords, r=query_size):
+            for keywords_to_send in full_overlap_queries:
 
                 # Get results using this query
                 returnedIDs = receiver.returnTuples([(signal, signal.keyword) for signal in keywords_to_send], top_k)
@@ -114,9 +115,23 @@ def calculateOptimalQueries(dataset, sender, receiver, oracle, start_range, end_
             # do better than the RR gotten from sending min_length overlapping keywords by sending (min_length - n)
             # overlapping keywords and n non-overlapping keywords
             elif index == 0 and min_length > 1 and best_rr[index] < 1:
+
+                # Remove all but (query_size - 1) terms that do not overlap with the external INDEX
+                # For any two terms a, b; if a,b not in D, then a == b for all practical purposes
+                    # Find all keywords not in D; remove then from set and add to different set
+                nonoverlapping_keywords_D = [signal for signal in nonoverlapping_keywords if signal.keyword not in receiver.idf]
+                    # remove all of these from nonoverlapping_keywords
+                nonoverlapping_keywords = list(set(nonoverlapping_keywords).difference(nonoverlapping_keywords_D))
+                    # add (query_size - 1) back in
+                nonoverlapping_keywords += nonoverlapping_keywords_D[:query_size - 1]
+
                 all_keywords = overlapping_keywords + nonoverlapping_keywords
                 best_queries_filler_queries = []
-                for keywords_to_send in itertools.combinations(all_keywords, r=query_size):
+
+                # Only try queries that include at least one keyword that overlaps with an external match
+                partial_overlap_queries = [query for query in itertools.combinations(all_keywords, r=query_size) if len(set(query).intersection(overlapping_keywords)) > 0 and query not in full_overlap_queries]
+
+                for keywords_to_send in partial_overlap_queries:
 
                     # Get results using this query
                     returnedIDs = receiver.returnTuples([(signal, signal.keyword) for signal in keywords_to_send],
