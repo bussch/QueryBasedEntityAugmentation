@@ -5,6 +5,7 @@ import multiprocessing as mp
 from run_experiments import experiment, get_dir_string
 from local.sender_hybrid import SenderHybrid
 from local.sender_longformer import SenderLongformer
+from local.sender_llama import SenderLlama
 from local.sender_dataset_level import SenderDatasetLevel
 from local.sender_idf_baseline import SenderIDFBaseline
 from external.receiver import Receiver
@@ -12,8 +13,8 @@ from data_manage.oracle import Oracle
 from additionalScripts.output_config import OutputConfig
 
 longopts = ['dataset=', 'iterations=', 'keys=', 'model=', 'distribution=', 'average_runs=',
-            'buffer_size=', 'buffer_sample_size=', 'finetune=', 'split_sample=', 'alpha=',
-            'epsilon=', 'evaluation_interval=', 'evaluation_sample=', 'p_thresh=',
+            'buffer_size=', 'buffer_sample_size=', 'lm_prefixes=', 'attribute_encoding=', 'split_sample=',
+            'alpha=', 'epsilon=', 'evaluation_interval=', 'evaluation_sample=', 'p_thresh=',
             'term_borrowing=', 'unsupervised_term_borrowing=',
             'ts_features=', 'external_feat_specific_unsupervised=', 'seeds=']
 optlist, _ = getopt.getopt(sys.argv[1:], '', longopts)
@@ -28,10 +29,11 @@ if len(optlist) != len(longopts):
 
     print('...**DEFAULTS**...')
     for opt, default in [('--average_runs', '1'), ('--evaluation_interval', 0), ('--p_thresh', None),
-    ('--evaluation_sample', 0), ('--distribution', 'uniform'), ('--alpha', 0.2), ('--epsilon', 0.05),
-    ('--buffer_size', 50), ('--buffer_sample_size', 8), ('--finetune', 'false'), ('--split_sample', 'false'),
-    ('--model', 'dataset_level'), ('--term_borrowing', 'false'), ('--unsupervised_term_borrowing', 'false'),
-    ('--ts_features', 'false'), ('--external_feat_specific_unsupervised', 'false'), ('--seeds', None)]:
+    ('--evaluation_sample', 0), ('--distribution', 'uniform'), ('--alpha', 0.2), ('--learning_rate', 0.001),
+    ('--epsilon', 0.05), ('--buffer_size', 50), ('--buffer_sample_size', 8), ('--lm_prefixes', 0),
+    ('--attribute_encoding', 'false'), ('--split_sample', 'false'), ('--model', 'dataset_level'),
+    ('--term_borrowing', 'false'), ('--unsupervised_term_borrowing', 'false'), ('--ts_features', 'false'),
+    ('--external_feat_specific_unsupervised', 'false'), ('--seeds', None)]:
       if opt not in opts_provided:
         print(f'{opt}={default}')
         optlist.append((opt, default))
@@ -63,7 +65,7 @@ for opt, arg in optlist:
         if experiment_config['evaluation_sample'] == 0:
           experiment_config['evaluation_sample'] = None
     elif opt == '--p_thresh':
-        sender_config['p_thresh'] = float(arg)
+        sender_config['p_thresh'] = arg if arg is None else float(arg)
     elif opt == '--model':
         model_opt = arg
     elif opt == '--distribution':
@@ -72,12 +74,16 @@ for opt, arg in optlist:
         sender_config['alpha'] = float(arg)
     elif opt == '--epsilon':
         sender_config['epsilon'] = float(arg)
+    elif opt == '--learning_rate':
+        sender_config['learning_rate'] = float(arg)
     elif opt == '--buffer_size':
         sender_config['buffer_size'] = int(arg)
     elif opt == '--buffer_sample_size':
         sender_config['buffer_sample_size'] = int(arg)
-    elif opt == '--finetune':
-        sender_config['finetune'] = True if arg.lower() == 'true' else False
+    elif opt == '--lm_prefixes':
+        sender_config['lm_prefixes'] = int(arg)
+    elif opt == '--attribute_encoding':
+        sender_config['attribute_encoding'] = True if arg.lower() == 'true' else False
     elif opt == '--split_sample':
         sender_config['split_sample'] = True if arg.lower() == 'true' else False
     elif opt == '--term_borrowing':
@@ -109,10 +115,10 @@ experiment_config['dataset_name'] = dataset_name
 #     print('Running IDF - no eval step')
 
 # Change config name for different servers
-# if model_opt == 'longformer':
-#     config_path = 'output_path_config.hpc'
-# else:
-config_path = 'output_path_config'
+if model_opt == 'longformer' or model_opt == 'llama':
+    config_path = 'output_path_config.hpc'
+else:
+    config_path = 'output_path_config'
 
 # Receiver parameters
 receiver_config['data_file_path'] = dataset_path + dataset_name + '/target.csv'
@@ -138,7 +144,7 @@ if model_opt == 'idf':
     experiment_config['save_path'] = OutputConfig(config_path).paths['experiment_results'] + \
                                      get_dir_string(experiment_config, ['dataset_name', 'query_length', 'interactions', 'distribution', 'evaluation_interval', 'evaluation_sample']) + '/' + \
                                      model_name + '-' + get_dir_string(sender_config, ['distribution'])
-elif model_opt == 'longformer':
+elif model_opt == 'longformer' or model_opt == 'llama':
     experiment_config['save_path'] = OutputConfig(config_path).paths['experiment_results'] + \
                                      get_dir_string(experiment_config, ['dataset_name', 'query_length', 'interactions', 'distribution', 'evaluation_interval', 'evaluation_sample']) + '/' + \
                                      model_name + '-' + get_dir_string(sender_config, ['epsilon', 'distribution', 'external_feat_idf', 'external_feat_specific', 'supervised_term_borrowing', 'buffer_size', 'buffer_sample_size', 'finetune', 'split_sample'])
@@ -179,6 +185,8 @@ elif model_opt == 'hybrid':
     sender = SenderHybrid(sender_config, receiver)
 elif model_opt == 'longformer':
     sender = SenderLongformer(sender_config, receiver)
+elif model_opt == 'llama':
+    sender = SenderLlama(sender_config, receiver)
 elif model_opt == 'idf':
     sender = SenderIDFBaseline(sender_config, receiver)
 else:
@@ -194,8 +202,11 @@ if dataset_name == 'chebi' or dataset_name == 'drugcentral':
 
 if model_opt == 'longformer':
     assert len(experiment_config['average_runs']) == 1
-    assert len(experiment_config['seeds']) == 1
-    experiment(experiment_config, sender, oracle, receiver, experiment_config['average_runs'][0], experiment_config['seeds'][0])
+    if sender_config['distribution'] == 'zipfian':
+        assert len(experiment_config['seeds']) == 1
+        experiment(experiment_config, sender, oracle, receiver, experiment_config['average_runs'][0], experiment_config['seeds'][0])
+    else:
+        experiment(experiment_config, sender, oracle, receiver, experiment_config['average_runs'][0])
 else:
     process_list = []
     for i, run in enumerate(experiment_config['average_runs']):

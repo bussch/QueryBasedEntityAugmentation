@@ -3,8 +3,8 @@ import random
 from local.sender_idf_baseline import SenderIDFBaseline
 from local.sender_dataset_level import SenderDatasetLevel
 from local.sender_hybrid import SenderHybrid
-from local.sender_longformer import SenderLongformer
-from local.sender_llama import SenderLlama
+# from local.sender_longformer import SenderLongformer
+# from local.sender_llama import SenderLlama
 from external.receiver import Receiver
 from data_manage.oracle import Oracle
 import multiprocessing as mp
@@ -33,18 +33,20 @@ def experiment(experiment_config, sender, oracle, receiver, average_run=1, seed=
         else:
             print('Using ' + str(seed) + ' seed for zipfian')
         sender.generateZipfianDistribution(seed)
-    elif sender.config['distribution'] == 'fixed':
-        # with open(f"fixedDistributions/fixedDist_{experiment_config['dataset_name']}-{experiment_config['interactions']}-{average_run-1}", 'rb') as file:
-        with open(f"fixedDistributions/fixedDist_{experiment_config['dataset_name']}-10000-{average_run - 1}",
-                  'rb') as file:
-            sender.tuple_series = pickle.load(file)
-            print(f'Loaded: {sender.tuple_series[:10]}')
-    elif sender.config['distribution'] == 'uniform_fixed':
-        with open(
-                f"fixedDistributions/fixedDist_uniform_{experiment_config['dataset_name']}-{experiment_config['interactions']}-{average_run - 1}",
-                'rb') as file:
-            sender.tuple_series = pickle.load(file)
-            print(f'Loaded (uniform fixed): {sender.tuple_series[:10]}')
+    elif sender.config['distribution'] == 'fixed' or sender.config['distribution'] == 'uniform_fixed':
+        if sender.config['distribution'] == 'fixed':
+            with open(f"fixedDistributions/fixedDist_{experiment_config['dataset_name']}-10000-{average_run-1}", 'rb') as file:
+                sender.tuple_series = pickle.load(file)
+                print(f'Loaded: {sender.tuple_series[:10]}')
+        elif sender.config['distribution'] == 'uniform_fixed':
+            with open(f"fixedDistributions/fixedDist_uniform_{experiment_config['dataset_name']}-{experiment_config['interactions']}-{average_run-1}", 'rb') as file:
+                sender.tuple_series = pickle.load(file)
+                print(f'Loaded (uniform fixed): {sender.tuple_series[:10]}')
+
+        # Delete unused tuples
+        for tup_id in list(sender.signalIndex.keys()):
+            if tup_id not in sender.tuple_series:
+                del sender.signalIndex[tup_id]
 
     queryLog = list()
 
@@ -127,13 +129,11 @@ def experiment(experiment_config, sender, oracle, receiver, average_run=1, seed=
 
             filePre = zip_dir
 
-            print('saving')
-            # del sender.signalIndex
-            # del sender.idf
+            print('saving') # Delete large data structures prior to saving models
             if hasattr(sender, 'dataset'):
                 del sender.dataset.table
-            if str(sender) == 'longformer':
-                del sender.model
+            if str(sender) == 'longformer' or str(sender) == 'llama':
+                del sender.model.linkyBert.language_model
             if hasattr(sender, '_external_signalIndex'):
                 del sender._external_signalIndex
 
@@ -166,13 +166,12 @@ def get_dir_string(config_dict, keys_in_order):
 if __name__ == '__main__':
 
     # Experiment parameters
-    dataset_name = 'google'
+    dataset_name = 'chebi'
     dataset_path = 'datasets/'
     experiment_config = {
-        'average_runs': 1,
-        # Amount of experiments to perform. Note that all processes but one will crash if data structures have not
-        # been created already (the first process will create them and the rest will crash trying to read them).
-        # Just run with 1 process when first creating data.
+        'average_runs': 1,  # Amount of experiments to perform. Note that all processes but one will crash if data structures have not
+                            # been created already (the first process will create them and the rest will crash trying to read them).
+                            # Just run with 1 process when first creating data.
         'interactions': 2000,  # interactions to run (i.e., amount of times we query the external)
         'top_k_size': 20,  # top-k tuples returned from external
         'query_length': 4,  # keywords to send (length of query)
@@ -198,8 +197,8 @@ if __name__ == '__main__':
         # Dataset-Level
         'unsupervised_term_borrowing': False,
         'external_feat_specific_unsupervised': False,
-        'p_thresh': None,  # Dynamic query length. If None, then not used.
-        # Otherwise, specify probability mass threshold (0, 1).
+        'p_thresh': None,   # Dynamic query length. If None, then not used.
+                            # Otherwise, specify probability mass threshold (0, 1).
 
         # Dataset-Level/Hybrid parameters
         'alpha': 0.2,
@@ -211,10 +210,13 @@ if __name__ == '__main__':
         'rr_threshold': 1 / 15,  # Rank 15 or worse
 
         # Longformer/Llama parameters
-        'epsilon': 0.05,  # e-greedy exploration
-        'buffer_size': 50,  # amount of previous (x,y) update samples to keep in LIFO queue
-        'buffer_sample_size': 8,  # amount of (x,y) pairs to uniformly sample from LIFO queue when updating
-        'split_sample': True  # Accumulates gradients one sample at a time. Can use if GPU lacks enough memory.
+        'epsilon': 0.05, # e-greedy exploration
+        'learning_rate': 0.001,
+        'buffer_size': 30, # amount of previous (x,y) update samples to keep in LIFO queue
+        'buffer_sample_size': 8, # amount of (x,y) pairs to uniformly sample from LIFO queue when updating
+        'split_sample': False,  # Accumulates gradients one sample at a time. Can use if GPU lacks enough memory.
+        'lm_prefixes': 5, # amount of prefix "tokens" to prepend (length of learned continuous prompt)
+        'attribute_encoding': True
     }
     # sender = SenderIDFBaseline(sender_config, receiver)
     sender = SenderDatasetLevel(sender_config, receiver)
@@ -227,13 +229,17 @@ if __name__ == '__main__':
 
     # Filepath for where experiment results will be saved "<config_path>/<experiment_details>"
     # Add additional configuration settings here to distinguish between experiments run
+    if str(sender) == 'longformer' or str(sender) == 'llama':
+        relevant_params = ['epsilon', 'learning_rate', 'buffer_size', 'buffer_sample_size', 'split_sample', 'lm_prefixes', 'attribute_encoding']
+    else:
+        relevant_params = ['unsupervised_term_borrowing', 'external_feat_specific_unsupervised', 'p_thresh', 'alpha', 'external_feat_specific',
+                           'supervised_term_borrowing']
+        if str(sender) == 'hybrid':
+            relevant_params += ['window_size', 'rr_threshold']
+
     experiment_config['save_path'] = OutputConfig('output_path_config').paths['experiment_results'] + \
-                                     get_dir_string(experiment_config, ['dataset_name', 'query_length', 'interactions',
-                                                                        'distribution']) + '/' + \
-                                     str(sender) + '-' + get_dir_string(sender_config,
-                                                                        ['alpha', 'external_feat_specific',
-                                                                         'unsupervised_term_borrowing',
-                                                                         'supervised_term_borrowing', 'p_thresh'])
+                                     get_dir_string(experiment_config, ['dataset_name', 'query_length', 'interactions', 'distribution']) + '/noSplit_' + \
+                                     str(sender) + '-' + get_dir_string(sender_config, relevant_params)
 
     # remove entities that have no match in any external source
     if dataset_name == 'chebi' or dataset_name == 'drugcentral':

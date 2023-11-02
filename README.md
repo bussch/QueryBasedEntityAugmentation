@@ -1,4 +1,9 @@
 # Effective Entity Augmentation By Querying External Data Sources
+
+This is the repository for the following papers:
+- [Effective Entity Augmentation By Querying External Data Sources](https://dl.acm.org/doi/10.14778/3611479.3611535) (VLDB 23)
+- [Generating Data Augmentation Queries Using Large Language Models](https://ceur-ws.org/Vol-3462/LLMDB3.pdf) (LLMDB 23 Workshop @ VLDB 23)
+
 Datasets can be found here: https://drive.google.com/drive/folders/1JEUpO5CeOYwtuFuNYvA9suWPiL1nmMb8?usp=sharing
 
 Our technical report can be found here: https://web.engr.oregonstate.edu/~termehca/papers/entityarg.pdf

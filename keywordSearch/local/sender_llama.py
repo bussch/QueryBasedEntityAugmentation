@@ -12,7 +12,7 @@ class SenderLlama(SenderBase):
         dummy_id = [x for x in self.signalIndex.keys()][0]
         dummy_signal = self.signalIndex[dummy_id][0]
         char_size = len(self.featurize_term(dummy_signal, dummy_id))
-        self.model = llama.LinkLlama(char_size, self.config['buffer_size'], self.config['buffer_sample_size'])
+        self.model = llama.LinkLlama(char_size, self.config, self.dataset)
 
     def __str__(self):
         return 'llama'

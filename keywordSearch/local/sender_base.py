@@ -79,17 +79,6 @@ class SenderBase(object):
 
         return result
 
-    # def __getstate__(self):
-    #     """Remove large data structures prior to pickling. NOTE: Windows systems will SPAWN processes when Process is
-    #         is called. This has the effect of also calling __getstate__, which means deleting these structures on
-    #         spawning. Consider simply commenting this override (function) out if running on a Windows system and
-    #         pickling the sender object.
-    #     """
-    #     state = self.__dict__.copy()
-    #     del state['signalIndex']
-    #     del state['idf']
-    #     return state
-
     def __setstate__(self, state):
         self.__dict__.update(state)
 
